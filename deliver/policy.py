@@ -45,4 +45,16 @@ def check(result, channel_name: str) -> None:
 POLICIES = (
     ("POL-EMAIL-01", "PII-containing results cannot be emailed"),
     ("POL-CHAT-02", f"results with more than {MAX_CHAT_ROWS} rows cannot go to chat"),
+    ("POL-EMAIL-03", "real sends go to a loopback SMTP server unless allow_remote_host=True"),
+    ("POL-EMAIL-04", "real SMTP sends are refused under CI"),
 )
+
+_CHANNEL_CHECKS = {
+    "email": ["POL-EMAIL-01", "POL-EMAIL-03", "POL-EMAIL-04"],
+    "chat": ["POL-CHAT-02"],
+}
+
+
+def checks_for(channel_name: str) -> list:
+    """Policy IDs that actually apply to a channel (for the audit entry)."""
+    return list(_CHANNEL_CHECKS.get(channel_name, []))

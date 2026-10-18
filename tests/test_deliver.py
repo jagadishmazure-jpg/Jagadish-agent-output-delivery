@@ -8,13 +8,11 @@ import pytest
 
 from deliver import policy
 from deliver.audit import DeliveryAudit
-from deliver.channels import (ChatChannel, EmailChannel, FakeSMTP,
-                              ReportChannel, TableChannel, dispatch)
+from deliver.channels import ChatChannel, EmailChannel, FakeSMTP, ReportChannel, TableChannel, dispatch
 from deliver.demo_helpers import deliver_all, sample_result
 from deliver.pii import contains_pii, find_pii, scan_result
 from deliver.policy import MAX_CHAT_ROWS, PolicyDenied
 from deliver.result import AgentResult, ResultError
-
 
 # ---------------------------------------------------------------- fixtures
 
@@ -399,3 +397,70 @@ def test_deliver_all_hits_four_channels(tmp_path):
     assert out["audit"].verify()
     assert len(out["email_client"].sent) == 1
     assert os.path.isfile(receipts["report"].detail["path"])
+
+
+# ---------- review fixes (grokbot-portfolio, 2026-10-18) ----------
+def test_email_to_remote_host_needs_explicit_opt_in():
+    ch = EmailChannel(smtp_factory=FakeSMTP, host="smtp.example.net", dry_run=False)
+    audit = DeliveryAudit()
+    with pytest.raises(PolicyDenied) as exc:
+        dispatch(make_result(), ch, audit=audit)
+    assert exc.value.policy_id == "POL-EMAIL-03"
+    assert ch.smtp is None  # no client was ever created
+    assert audit.entries[-1]["outcome"] == "denied"
+    ok = EmailChannel(smtp_factory=FakeSMTP, host="smtp.example.net", dry_run=False, allow_remote_host=True)
+    dispatch(make_result(), ok)
+    assert len(ok.smtp.sent) == 1
+
+
+def test_real_smtp_refused_under_ci(monkeypatch):
+    import smtplib
+    monkeypatch.setenv("CI", "true")
+    ch = EmailChannel(dry_run=False)  # real smtplib.SMTP, loopback host
+    assert ch.smtp_factory is smtplib.SMTP
+    with pytest.raises(PolicyDenied) as exc:
+        dispatch(make_result(), ch)
+    assert exc.value.policy_id == "POL-EMAIL-04"
+    assert ch.smtp is None
+
+
+def test_email_default_is_dry_run_without_any_connection():
+    ch = EmailChannel()  # real smtplib default, but dry run: nothing is opened
+    receipt = dispatch(make_result(), ch)
+    assert receipt.detail["dry_run"] is True and ch.smtp is None
+
+
+def test_email_needs_a_recipient():
+    with pytest.raises(ValueError):
+        EmailChannel(smtp_factory=FakeSMTP, to_addrs=())
+
+
+def test_title_must_be_single_line():
+    with pytest.raises(ResultError):
+        make_result(title="Report\nBcc: someone@example.com")
+
+
+def test_card_number_blocks_email():
+    r = make_result(summary="Refund to card 4111 1111 1111 1111 approved.")
+    with pytest.raises(PolicyDenied) as exc:
+        dispatch(r, EmailChannel(smtp_factory=FakeSMTP))
+    assert exc.value.policy_id == "POL-EMAIL-01" and "card" in exc.value.reason
+
+
+def test_chat_cells_cannot_break_table():
+    r = make_result(tables=[{"name": "t", "columns": ["a", "b"], "rows": [["x|y", "line1\nline2"]]}])
+    msg = ChatChannel().deliver(r).detail["message"]
+    assert "| x\\|y | line1 line2 |" in msg
+
+
+def test_report_ids_do_not_collide(tmp_path):
+    ch = ReportChannel(str(tmp_path))
+    p1 = ch.deliver(make_result(id="a/b")).detail["path"]
+    p2 = ch.deliver(make_result(id="a_b")).detail["path"]
+    assert p1 != p2 and os.path.exists(p1) and os.path.exists(p2)
+
+
+def test_audit_lists_only_checks_that_apply():
+    audit = DeliveryAudit()
+    dispatch(make_result(), ChatChannel(), audit=audit)
+    assert audit.entries[-1]["policy_checks"] == ["POL-CHAT-02"]

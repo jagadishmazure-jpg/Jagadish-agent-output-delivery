@@ -1,7 +1,7 @@
 """PII detection used by delivery policies.
 
 Scans result text (summary, table cells, figure labels) for email addresses,
-phone numbers, and SSNs. Dates such as 2026-10-18 are explicitly NOT treated
+phone numbers, SSNs and card numbers. Dates such as 2026-10-18 are explicitly NOT treated
 as PII.
 """
 
@@ -14,8 +14,9 @@ PHONE_RE = re.compile(
     r"(?<!\w)(?:\+?1[-.\s]?)?(?:\(\d{3}\)\s?|\d{3}[-.\s]?)\d{3}[-.\s]?\d{4}\b"
 )
 SSN_RE = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
+CARD_RE = re.compile(r"\b(?:\d{4}[- ]\d{4}[- ]\d{4}[- ]\d{4}|\d{13,19})\b")
 
-_PATTERNS = (("email", EMAIL_RE), ("phone", PHONE_RE), ("ssn", SSN_RE))
+_PATTERNS = (("email", EMAIL_RE), ("phone", PHONE_RE), ("ssn", SSN_RE), ("card", CARD_RE))
 
 
 def find_pii(text: str) -> list:

@@ -9,6 +9,7 @@ audit log.
 
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import os
@@ -34,6 +35,11 @@ class DeliveryReceipt:
     detail: dict = field(default_factory=dict)
 
 
+def _md_cell(value) -> str:
+    """A table cell that cannot break the Markdown row (``|`` or a newline)."""
+    return str(value).replace("\\", "\\\\").replace("|", "\\|").replace("\r", " ").replace("\n", " ")
+
+
 class ChatChannel:
     """Formats a result as a Markdown message for chat UIs."""
 
@@ -51,7 +57,7 @@ class ChatChannel:
             lines.append("| " + " | ".join(table["columns"]) + " |")
             lines.append("| " + " | ".join("---" for _ in table["columns"]) + " |")
             for row in table["rows"]:
-                lines.append("| " + " | ".join(str(c) for c in row) + " |")
+                lines.append("| " + " | ".join(_md_cell(c) for c in row) + " |")
             lines.append("")
         if result.citations:
             lines.append("_Sources: " + "; ".join(result.citations) + "_")
@@ -153,6 +159,9 @@ class ReportChannel:
     def deliver(self, result) -> DeliveryReceipt:
         os.makedirs(self.out_dir, exist_ok=True)
         safe_id = "".join(c if c.isalnum() or c in "-_" else "_" for c in result.id)
+        if safe_id != result.id:
+            # "a/b" and "a_b" must not overwrite each other's report (RPT-PATH-01).
+            safe_id += "-" + hashlib.sha256(result.id.encode()).hexdigest()[:8]
         path = os.path.join(self.out_dir, f"{safe_id}.html")
         content = self._render(result)
         with open(path, "w", encoding="utf-8") as fh:
@@ -185,30 +194,59 @@ class FakeSMTP:
         self.sent.append(msg)
 
 
+_LOOPBACK = {"localhost", "127.0.0.1", "::1"}
+
+
+def _in_ci() -> bool:
+    return any(os.environ.get(k, "").lower() in ("1", "true", "yes")
+               for k in ("CI", "GITHUB_ACTIONS"))
+
+
 class EmailChannel:
     """Sends the result as an email via smtplib.
 
-    ``smtp_factory`` defaults to ``smtplib.SMTP``; tests pass ``FakeSMTP``
-    so no network is touched.
+    Safe by default, with explicit opt-in at every step:
 
-    SAFETY: dry-run is ON by default — ``deliver()`` logs the message
-    instead of connecting. Pass ``dry_run=False`` with an explicit host
-    to actually send. No credentials are stored here; pass them via the
-    ``smtp_factory`` if needed (never commit them).
+    * ``dry_run=True`` by default: ``deliver()`` builds the message and
+      returns a receipt without opening any connection.
+    * ``dry_run=False`` sends to a **loopback** SMTP server only (a local
+      test server such as ``python -m aiosmtpd -n -l localhost:8025``).
+    * A non-loopback host additionally needs ``allow_remote_host=True``
+      (POL-EMAIL-03).
+    * Under CI (``CI``/``GITHUB_ACTIONS`` set), a real ``smtplib.SMTP`` send is
+      always refused (POL-EMAIL-04); tests inject ``FakeSMTP``.
+
+    No credentials exist anywhere in this repo: there is no login call. If a
+    real relay needs auth, wrap it in your own ``smtp_factory`` outside the
+    repo and keep the secret out of git.
     """
 
     name = "email"
 
     def __init__(self, smtp_factory=smtplib.SMTP, host="localhost", port=25,
                  from_addr="agents@example.com", to_addrs=("ops@example.com",),
-                 dry_run=True):
+                 dry_run=True, allow_remote_host=False):
+        if not to_addrs:
+            raise ValueError("EmailChannel needs at least one recipient")
         self.smtp_factory = smtp_factory
         self.host = host
         self.port = port
         self.from_addr = from_addr
         self.to_addrs = tuple(to_addrs)
         self.dry_run = dry_run
+        self.allow_remote_host = allow_remote_host
         self.smtp = None  # last used client (lets tests inspect FakeSMTP.sent)
+
+    def preflight(self) -> None:
+        """Refuse a real send that was not explicitly opted into. Raises PolicyDenied."""
+        if self.dry_run:
+            return
+        if self.smtp_factory is smtplib.SMTP and _in_ci():
+            raise PolicyDenied("POL-EMAIL-04", "real SMTP sends are disabled under CI; use FakeSMTP or dry_run")
+        if self.host not in _LOOPBACK and not self.allow_remote_host:
+            raise PolicyDenied(
+                "POL-EMAIL-03",
+                f"host {self.host!r} is not loopback; pass allow_remote_host=True to send there")
 
     def _build_message(self, result) -> EmailMessage:
         msg = EmailMessage()
@@ -228,6 +266,7 @@ class EmailChannel:
         return msg
 
     def deliver(self, result) -> DeliveryReceipt:
+        self.preflight()
         msg = self._build_message(result)
         if self.dry_run:
             return DeliveryReceipt(
@@ -271,6 +310,9 @@ def dispatch(result, channel, audit=None) -> DeliveryReceipt:
         raise ValueError(f"unknown channel: {name!r}")
     try:
         policy.check(result, name)
+        preflight = getattr(channel, "preflight", None)
+        if preflight is not None:
+            preflight()
     except PolicyDenied as denied:
         if audit is not None:
             audit.log(result.id, name, "denied",
@@ -280,6 +322,6 @@ def dispatch(result, channel, audit=None) -> DeliveryReceipt:
     receipt = channel.deliver(result)
     if audit is not None:
         audit.log(result.id, name, "delivered",
-                  policy_checks=["POL-EMAIL-01", "POL-CHAT-02"],
+                  policy_checks=policy.checks_for(name),
                   detail=dict(receipt.detail))
     return receipt

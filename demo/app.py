@@ -6,7 +6,7 @@ import tempfile
 try:
     import streamlit as st
 except ImportError:  # pragma: no cover
-    raise SystemExit("pip install streamlit, then run: streamlit run demo/app.py")
+    raise SystemExit("pip install streamlit, then run: streamlit run demo/app.py") from None
 
 from deliver.channels import FakeSMTP
 from deliver.demo_helpers import deliver_all, sample_result
