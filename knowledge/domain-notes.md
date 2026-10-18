@@ -19,3 +19,21 @@ The second half of delivery is proof: *what* was delivered, *where*,
 *when*, and *which policies were checked*. A hash-chained log makes that
 proof tamper-evident, which is what turns "the agent sent it" into an
 auditable fact.
+
+## Structured assessments for security findings
+
+Flat finding lists serve nobody well: the analyst needs severity order, the
+leader needs themes, the auditor needs proof. The five-area assessment
+(`deliver/assessment.py`) is one report cut five ways:
+
+1. **Overview** — what was assessed (surface composition).
+2. **Effective privilege** — who holds what, and the indirect paths.
+3. **Security themes** — are the foundational safeguards actually working?
+4. **Emerging themes** — the risks moving fastest (agent identities, secret
+   sprawl).
+5. **Findings explorer** — every detection, severity-sorted, priority-ranked.
+
+The standing rule carries over from delivery: every finding names its proof
+(`proven_by`). A claim without a named test or check is rejected at
+construction — the same way a result without validation never reaches a
+channel.
