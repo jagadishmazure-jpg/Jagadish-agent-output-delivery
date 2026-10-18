@@ -15,7 +15,6 @@ from deliver.assessment import (
     render_html,
 )
 
-
 # ---------------------------------------------------------------- fixtures
 
 def make_finding(**overrides):

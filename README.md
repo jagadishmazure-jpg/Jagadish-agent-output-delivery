@@ -82,7 +82,10 @@ rejected when the result is built, so a header cannot be injected.
 | 5 | Findings explorer | Every detection: severity-sorted, priority-ranked, with recommendation and proof |
 
 Every `Finding` names its proof (`proven_by` — the test or check behind the
-claim); a claim without a proof is rejected at construction.
+claim); a finding with an empty `proven_by` is rejected at construction. The
+name is recorded as given and is not checked against a test suite, so the
+caller is responsible for citing a real test (the example below is
+illustrative).
 
 ```python
 from deliver.assessment import Assessment, Finding, build_report

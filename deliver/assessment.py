@@ -26,7 +26,6 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-
 SEVERITIES = ("critical", "high", "medium", "low")
 SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
