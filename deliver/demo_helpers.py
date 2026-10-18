@@ -7,8 +7,7 @@ testable without the UI.
 from __future__ import annotations
 
 from .audit import DeliveryAudit
-from .channels import (ChatChannel, EmailChannel, FakeSMTP, ReportChannel,
-                       TableChannel, dispatch)
+from .channels import ChatChannel, EmailChannel, FakeSMTP, ReportChannel, TableChannel, dispatch
 from .result import AgentResult
 
 

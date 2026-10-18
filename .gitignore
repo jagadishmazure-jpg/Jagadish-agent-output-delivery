@@ -5,3 +5,6 @@ __pycache__/
 *.db
 deliverables/
 .DS_Store
+*.py[cod]
+.ruff_cache/
+*.pdf

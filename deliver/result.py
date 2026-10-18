@@ -42,6 +42,9 @@ class AgentResult:
             raise ResultError("id must be a non-empty string")
         if not isinstance(self.title, str) or not self.title.strip():
             raise ResultError("title must be a non-empty string")
+        if "\n" in self.title or "\r" in self.title:
+            # The title becomes an email Subject header (RES-TITLE-01).
+            raise ResultError("title must be a single line")
         if not isinstance(self.summary, str) or not self.summary.strip():
             raise ResultError("summary must be a non-empty string")
         if not isinstance(self.tables, list):
