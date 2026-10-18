@@ -9,7 +9,7 @@ First-class output delivery for agent results: one validated `AgentResult` deliv
 
 - **Problem:** agents answer in chat but never *deliver* — no dashboard feed, no report file, no email, and no policy saying what may go where.
 - **Approach:** a validated `AgentResult` (tables, figures, citations) plus four channels behind one `dispatch()` entry point; per-channel policies (`POL-EMAIL-01`: no PII by email; `POL-EMAIL-03`/`04`: no remote or CI sending without opt-in; `POL-CHAT-02`: ≤20 rows in chat) deny before sending; every outcome lands in a hash-chained audit log.
-- **Proof:** all tests pass (real total below), including idempotent table re-delivery, every policy denial, `FakeSMTP` capture, CI refusal of real SMTP, and audit tamper detection.
+- **Proof:** all tests pass (real total below), including idempotent table re-delivery, every policy denial, `FakeSMTP` capture, CI refusal of real SMTP, audit tamper detection, five-area assessment rendering, severity sorting with priority ranks, and HTML escaping.
 
 ## How it works
 
@@ -68,6 +68,40 @@ off unless you ask for it twice:
 `to_addrs` must be non-empty, and a title containing a line break is
 rejected when the result is built, so a header cannot be injected.
 
+## Five-area assessment reports
+
+`deliver/assessment.py` structures security findings for different audiences
+(analysts, leaders, auditors) instead of flat lists:
+
+| # | Area | What it holds |
+|---|---|---|
+| 1 | Overview | Composition of the assessed surface (identities, agents, tools, scopes, secrets) |
+| 2 | Effective privilege | Who holds what; concentration risks and indirect paths |
+| 3 | Security themes | Are the basics present and effective (vaulting, rotation, JIT, confirmation gates)? |
+| 4 | Emerging themes | Newest, fastest-moving risks (AI agent identities, secret sprawl, automation) |
+| 5 | Findings explorer | Every detection: severity-sorted, priority-ranked, with recommendation and proof |
+
+Every `Finding` names its proof (`proven_by` — the test or check behind the
+claim); a claim without a proof is rejected at construction.
+
+```python
+from deliver.assessment import Assessment, Finding, build_report
+
+a = Assessment(
+    title="Q4 identity assessment",
+    surface={"identities": 14, "agents": 6, "tools": 22},
+    findings=[
+        Finding(severity="critical", area="effective_privilege",
+                title="Orphaned admin key",
+                detail="svc-etl holds write on prod-db with no expiry.",
+                recommendation="Convert to just-in-time elevation.",
+                proven_by="test_orphan_detection"),
+    ],
+)
+receipt = build_report(a, "deliverables/q4-assessment.html")
+# receipt["bytes"] -> 2623 (real run: 1 finding, all five sections rendered)
+```
+
 ## Guardrails
 
 - **POL-EMAIL-01** — results containing PII (email/phone/SSN/card number) cannot be emailed; use chat or table.
@@ -94,7 +128,7 @@ python3 scripts/count_tests.py     # prints the real total
 
 <!-- run: python scripts/count_tests.py -->
 ```text
-56 tests collected
+78 tests collected
 ```
 <!-- /run -->
 
@@ -104,7 +138,7 @@ Optional Streamlit demo: `pip install streamlit && streamlit run demo/app.py` (i
 
 | Status | Item |
 |---|---|
-| Built | `AgentResult` validation, 4 channels, 4 delivery policies, email safety guards, hash-chained audit, demo helpers, tests, CI (tests, ruff, docs, brand check, gitleaks, CodeQL) |
+| Built | `AgentResult` validation, 4 channels, 4 delivery policies, email safety guards, hash-chained audit, five-area assessment reports (`deliver/assessment.py`), demo helpers, tests, CI (tests, ruff, docs, brand check, gitleaks, CodeQL) |
 | Planned | Per-platform chat formatters, scheduled digest delivery, per-recipient policy profiles |
 
 ## Docs
